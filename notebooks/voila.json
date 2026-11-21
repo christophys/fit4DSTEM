@@ -1,0 +1,6 @@
+{
+  "VoilaConfiguration": {
+    "show_tracebacks": true,
+    "file_allowlist": [".*\\.(png|svg|html|json)"]
+  }
+}

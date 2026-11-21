@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="322" font-family="Helvetica, Arial, sans-serif" font-size="12">
+<defs><marker id="arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5a6b7b"/></marker></defs>
+<text x="20" y="30" font-size="14" font-weight="bold" fill="#2a3a4a">synthetic: fit4dstem 4D-STEM analysis</text>
+<text x="20" y="55" fill="#5a6b7b">inputs</text>
+<text x="330" y="55" fill="#5a6b7b">tasks</text>
+<text x="730" y="55" fill="#5a6b7b">outputs</text>
+<rect x="20" y="70.0" rx="18" width="230" height="40" fill="#e3f0fb" stroke="#2f80c3"/><text x="34" y="95.0" fill="#123">4D-STEM data</text>
+<rect x="20" y="128.0" rx="18" width="230" height="40" fill="#e3f0fb" stroke="#2f80c3"/><text x="34" y="153.0" fill="#123">vacuum reference</text>
+<rect x="20" y="186.0" rx="18" width="230" height="40" fill="#e3f0fb" stroke="#2f80c3"/><text x="34" y="211.0" fill="#123">library lib_BaTiO3_100.h5</text>
+<rect x="20" y="244.0" rx="18" width="230" height="40" fill="#e3f0fb" stroke="#2f80c3"/><text x="34" y="269.0" fill="#123">library lib_SrTiO3_100.h5</text>
+<rect x="330" y="70.0" rx="4" width="260" height="40" fill="#fff1df" stroke="#e08a1e"/><text x="344" y="95.0" fill="#321">1. Load 4D-STEM data</text>
+<rect x="330" y="128.0" rx="4" width="260" height="40" fill="#fff1df" stroke="#e08a1e"/><text x="344" y="153.0" fill="#321">2. Calibrate patterns</text>
+<rect x="330" y="186.0" rx="4" width="260" height="40" fill="#fff1df" stroke="#e08a1e"/><text x="344" y="211.0" fill="#321">3. Fit maps</text>
+<rect x="330" y="244.0" rx="4" width="260" height="40" fill="#fff1df" stroke="#e08a1e"/><text x="344" y="269.0" fill="#321">4. Export NXem</text>
+<rect x="730" y="128.0" rx="18" width="230" height="40" fill="#e5f6e8" stroke="#2e9e4f"/><text x="744" y="153.0" fill="#132">NXem results</text>
+<rect x="730" y="186.0" rx="18" width="230" height="40" fill="#e5f6e8" stroke="#2e9e4f"/><text x="744" y="211.0" fill="#132">measurement ELN</text>
+<path d="M250,90.0 C290.0,90.0 290.0,90.0 330,90.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M250,148.0 C290.0,148.0 290.0,90.0 330,90.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M590,90.0 C620,90.0 620,148.0 590,148.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M590,148.0 C620,148.0 620,206.0 590,206.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M250,206.0 C290.0,206.0 290.0,206.0 330,206.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M250,264.0 C290.0,264.0 290.0,206.0 330,206.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M590,206.0 C620,206.0 620,264.0 590,264.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M590,264.0 C660.0,264.0 660.0,148.0 730,148.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+<path d="M590,264.0 C660.0,264.0 660.0,206.0 730,206.0" fill="none" stroke="#5a6b7b" marker-end="url(#arr)"/>
+</svg>
