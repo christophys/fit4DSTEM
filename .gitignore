@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.ipynb_checkpoints/
+fit4dstem_results/
+synthetic_work/
+*.h5
+*.nxs
+!docs/*.svg
+.pytest_cache/
+build/
+dist/
