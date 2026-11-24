@@ -28,7 +28,7 @@ web = ["solara==1.58.2", "solara-assets==1.58.2"]
 # NXem validation, other input formats
 nexus = ["pynxtools>=0.16", "pynxtools-em>=0.4", "rosettasciio"]
 # NOMAD plugin (dashboard + ELN schema); nomad-lab itself comes with the NOMAD installation
-nomad = ["solara==1.58.2", "solara-assets==1.58.2", "pynxtools>=0.16", "pynxtools-em>=0.4", "nomad-measurements"]
+nomad = ["solara==1.58.2", "solara-assets==1.58.2", "httpx", "websockets", "pynxtools>=0.16", "pynxtools-em>=0.4", "nomad-measurements"]
 notebooks = ["jupyter", "voila", "nbformat"]
 gpu = ["cupy-cuda12x"]
 dev = ["pytest"]

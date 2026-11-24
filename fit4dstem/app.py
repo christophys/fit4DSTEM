@@ -32,8 +32,16 @@ from . import strain as st
 from .nomad import NOMAD_URLS, NomadClient, NomadError, default_results_folder
 
 _S = {"description_width": "150px"}
-_L = W.Layout(width="420px")
-_LS = W.Layout(width="260px")
+# layouts are widgets too: one new instance per use (a shared module-level instance belongs to no
+# session in a multi-user server such as Solara and shows "widget model not found")
+
+
+def _L():
+    return W.Layout(width="420px")
+
+
+def _LS():
+    return W.Layout(width="260px")
 
 
 def _html_ok(msg, ok=True):
@@ -164,8 +172,8 @@ class App:
         self.w_up.on_click(lambda _: self._browse(os.path.dirname(self.w_dir.value)))
         self.w_refresh.on_click(lambda _: self._browse(self.w_dir.value))
         self.w_files.observe(self._file_select, names="value")
-        self.w_dsp = W.Dropdown(options=[("(auto)", "")], description="4D dataset", style=_S, layout=_L)
-        self.w_bin = W.BoundedIntText(value=1, min=1, max=16, description="detector binning", style=_S, layout=_LS)
+        self.w_dsp = W.Dropdown(options=[("(auto)", "")], description="4D dataset", style=_S, layout=_L())
+        self.w_bin = W.BoundedIntText(value=1, min=1, max=16, description="detector binning", style=_S, layout=_LS())
         self.w_open = W.Button(description="open as specimen data", icon="folder-open", button_style="primary",
                                layout=W.Layout(width="220px"))
         self.w_open_ref = W.Button(description="open as vacuum reference", icon="folder-open",
@@ -175,22 +183,22 @@ class App:
         self.w_info = W.HTML()
         self.w_info_ref = W.HTML()
         # metadata (from the file, editable)
-        self.w_E = W.FloatText(value=60.0, description="high tension (kV)", style=_S, layout=_LS)
-        self.w_alpha = W.FloatText(value=4.0, description="conv. semi-angle (mrad)", style=_S, layout=_LS)
-        self.w_step = W.FloatText(value=0.2, description="scan step (nm)", style=_S, layout=_LS)
-        self.w_gain = W.FloatText(value=1.0, description="counts per electron", style=_S, layout=_LS)
+        self.w_E = W.FloatText(value=60.0, description="high tension (kV)", style=_S, layout=_LS())
+        self.w_alpha = W.FloatText(value=4.0, description="conv. semi-angle (mrad)", style=_S, layout=_LS())
+        self.w_step = W.FloatText(value=0.2, description="scan step (nm)", style=_S, layout=_LS())
+        self.w_gain = W.FloatText(value=1.0, description="counts per electron", style=_S, layout=_LS())
         self.w_zone = W.Dropdown(options=list(cr.ZONES), value="[110]", description="zone axis", style=_S,
-                                 layout=_LS)
+                                 layout=_LS())
         mats = []
         self.w_mat = {}
         for name, m in cr.MATERIALS.items():
-            a = W.FloatText(value=m.a, description=f"{name} a (Å)", style=_S, layout=_LS)
-            c = W.FloatText(value=m.c, description=f"{name} c (Å)", style=_S, layout=_LS)
+            a = W.FloatText(value=m.a, description=f"{name} a (Å)", style=_S, layout=_LS())
+            c = W.FloatText(value=m.c, description=f"{name} c (Å)", style=_S, layout=_LS())
             self.w_mat[name] = (a, c)
             mats.append(W.HBox([a, c]))
         # preview
         self.w_prev_n = W.BoundedIntText(value=6, min=1, max=64, description="preview: n x n frames", style=_S,
-                                         layout=_LS)
+                                         layout=_LS())
         self.w_prev = W.Button(description="preview", icon="eye")
         self.w_prev.on_click(lambda _: self._preview())
         self.w_prev_img = self._img("420px")
@@ -428,28 +436,28 @@ class App:
     # ================================================================== tab 2
     def _tab_calibrate(self):
         self.w_coarse_n = W.BoundedIntText(value=12, min=2, max=64, description="coarse sample n x n", style=_S,
-                                           layout=_LS)
-        self.w_r = W.FloatText(value=0.0, description="disc radius (px, 0 = auto)", style=_S, layout=_LS)
+                                           layout=_LS())
+        self.w_r = W.FloatText(value=0.0, description="disc radius (px, 0 = auto)", style=_S, layout=_LS())
         self.w_find = W.Button(description="1 read coarse sample + find lattice", icon="search",
                                button_style="primary", layout=W.Layout(width="300px"))
         self.w_find.on_click(lambda _: self._find_lattice())
         self.w_dist_order = W.Dropdown(options=[("none", 0), ("2", 2), ("3", 3), ("4", 4), ("5", 5)], value=3,
-                                       description="distortion order", style=_S, layout=_LS)
-        self.w_gmax = W.FloatText(value=0.0, description="discs used up to (mrad, 0 = all)", style=_S, layout=_LS)
+                                       description="distortion order", style=_S, layout=_LS())
+        self.w_gmax = W.FloatText(value=0.0, description="discs used up to (mrad, 0 = all)", style=_S, layout=_LS())
         self.w_dist = W.Button(description="2 fit distortions", icon="th", layout=W.Layout(width="300px"))
         self.w_dist.on_click(lambda _: self._fit_distortion())
         self.w_zone_c = W.Dropdown(options=[], description="crystal axes", style=_S, layout=W.Layout(width="620px"))
         self.w_zone_c.observe(lambda ch: self._zone_changed(), names="value")
         self.w_bg_method = W.Dropdown(options=[("smooth (normalized convolution)", "smooth"),
                                                ("radial spline x harmonics", "radial"), ("none", "none")],
-                                      value="smooth", description="background", style=_S, layout=_L)
-        self.w_bg_sigma = W.FloatText(value=6.0, description="smoothing sigma (px)", style=_S, layout=_LS)
-        self.w_bg_margin = W.FloatText(value=1.5, description="mask margin (px)", style=_S, layout=_LS)
+                                      value="smooth", description="background", style=_S, layout=_L())
+        self.w_bg_sigma = W.FloatText(value=6.0, description="smoothing sigma (px)", style=_S, layout=_LS())
+        self.w_bg_margin = W.FloatText(value=1.5, description="mask margin (px)", style=_S, layout=_LS())
         self.w_bg_auto = W.Button(description="3 choose sigma (cross-validation)", icon="magic",
                                   layout=W.Layout(width="300px"))
         self.w_bg_auto.on_click(lambda _: self._bg_auto())
         self.w_bg_show = W.BoundedIntText(value=0, min=0, max=10000, description="show coarse pattern #",
-                                          style=_S, layout=_LS)
+                                          style=_S, layout=_LS())
         self.w_bg_prev = W.Button(description="show background", icon="eye")
         self.w_bg_prev.on_click(lambda _: self._bg_preview())
         self.w_maps_coarse = W.Button(description="4 interpolated beam maps (coarse)", icon="map",
@@ -461,11 +469,11 @@ class App:
         # vacuum reference
         self.w_ref_use_ap = W.Checkbox(value=True, description="disc radius and edge from the reference",
                                        indent=False)
-        self.w_ref_off = W.Text(value="auto", description="ref. frame offset (y, x px)", style=_S, layout=_LS)
+        self.w_ref_off = W.Text(value="auto", description="ref. frame offset (y, x px)", style=_S, layout=_LS())
         self.w_ref_mode = W.Dropdown(options=[("polynomial (degree 1)", ("poly", 1)), ("polynomial (2)", ("poly", 2)),
                                               ("polynomial (3)", ("poly", 3)), ("interpolate", ("interp", 0)),
                                               ("same grid", ("same", 0))],
-                                     value=("poly", 2), description="descan model", style=_S, layout=_L)
+                                     value=("poly", 2), description="descan model", style=_S, layout=_L())
         self.w_ref_all = W.Checkbox(value=False, description="all reference positions (else coarse)", indent=False)
         self.w_ref_btn = W.Button(description="6 vacuum reference -> descan + deflection", icon="crosshairs",
                                   layout=W.Layout(width="320px"))
@@ -738,16 +746,16 @@ class App:
         self.w_lib_load.on_click(lambda _: self._lib_load())
         self.w_lib_info = W.HTML()
         # library builder
-        self.w_b_mat = W.Dropdown(options=list(cr.MATERIALS), description="material", style=_S, layout=_LS)
-        self.w_b_tilt = W.FloatText(value=2.0, description="max. tilt (mrad)", style=_S, layout=_LS)
-        self.w_b_step = W.FloatText(value=0.5, description="direction step (mrad)", style=_S, layout=_LS)
-        self.w_b_gmax = W.FloatText(value=1.2, description="g max (1/Å)", style=_S, layout=_LS)
-        self.w_b_tmax = W.FloatText(value=50.0, description="max. thickness (nm)", style=_S, layout=_LS)
+        self.w_b_mat = W.Dropdown(options=list(cr.MATERIALS), description="material", style=_S, layout=_LS())
+        self.w_b_tilt = W.FloatText(value=2.0, description="max. tilt (mrad)", style=_S, layout=_LS())
+        self.w_b_step = W.FloatText(value=0.5, description="direction step (mrad)", style=_S, layout=_LS())
+        self.w_b_gmax = W.FloatText(value=1.2, description="g max (1/Å)", style=_S, layout=_LS())
+        self.w_b_tmax = W.FloatText(value=50.0, description="max. thickness (nm)", style=_S, layout=_LS())
         self.w_b_uw = W.Text(value="-40, -25, -12, 0, 12, 25, 40", description="u, w grid (pm)", style=_S,
-                             layout=_L)
-        self.w_b_samp = W.FloatText(value=0.08, description="sampling (Å)", style=_S, layout=_LS)
-        self.w_b_abs = W.FloatText(value=0.03, description="absorption (V'/V)", style=_S, layout=_LS)
-        self.w_b_dev = W.Dropdown(options=["cpu", "gpu"], value="cpu", description="device", style=_S, layout=_LS)
+                             layout=_L())
+        self.w_b_samp = W.FloatText(value=0.08, description="sampling (Å)", style=_S, layout=_LS())
+        self.w_b_abs = W.FloatText(value=0.03, description="absorption (V'/V)", style=_S, layout=_LS())
+        self.w_b_dev = W.Dropdown(options=["cpu", "gpu"], value="cpu", description="device", style=_S, layout=_LS())
         self.w_b_est = W.Button(description="estimate time", icon="clock-o")
         self.w_b_est.on_click(lambda _: self._lib_estimate())
         self.w_b_go = W.Button(description="build library", icon="cogs", button_style="warning")
@@ -765,17 +773,17 @@ class App:
         self.w_mix = W.Checkbox(value=True, description="fit SrTiO3 fraction (two libraries)", indent=False)
         self.w_refl = W.Checkbox(value=True, description="model-based lattice refinement (strain, field)",
                                  indent=False)
-        self.w_sbin = W.BoundedIntText(value=1, min=1, max=16, description="scan binning", style=_S, layout=_LS)
+        self.w_sbin = W.BoundedIntText(value=1, min=1, max=16, description="scan binning", style=_S, layout=_LS())
         self.w_roi = W.Text(value="", description="ROI y0,y1,x0,x1", placeholder="(whole map)", style=_S,
-                            layout=_LS)
-        self.w_seeds = W.BoundedIntText(value=5, min=1, max=30, description="seeds per axis", style=_S, layout=_LS)
+                            layout=_LS())
+        self.w_seeds = W.BoundedIntText(value=5, min=1, max=30, description="seeds per axis", style=_S, layout=_LS())
         self.w_passes = W.BoundedIntText(value=2, min=0, max=6, description="refinement passes", style=_S,
-                                         layout=_LS)
-        self.w_threads = W.BoundedIntText(value=1, min=1, max=64, description="threads", style=_S, layout=_LS)
-        self.w_tstep = W.FloatText(value=2.0, description="seed thickness step (nm)", style=_S, layout=_LS)
+                                         layout=_LS())
+        self.w_threads = W.BoundedIntText(value=1, min=1, max=64, description="threads", style=_S, layout=_LS())
+        self.w_tstep = W.FloatText(value=2.0, description="seed thickness step (nm)", style=_S, layout=_LS())
         self.w_test_y = W.BoundedIntText(value=0, min=0, max=100000, description="test pattern y", style=_S,
-                                         layout=_LS)
-        self.w_test_x = W.BoundedIntText(value=0, min=0, max=100000, description="x", style=_S, layout=_LS)
+                                         layout=_LS())
+        self.w_test_x = W.BoundedIntText(value=0, min=0, max=100000, description="x", style=_S, layout=_LS())
         self.w_test = W.Button(description="test fit", icon="flask")
         self.w_test.on_click(lambda _: self._test_fit())
         self.w_ap = W.Button(description="refine disc radius + edge (model)", icon="circle-o",
@@ -796,26 +804,26 @@ class App:
                                   style=_S, layout=W.Layout(width="420px"), continuous_update=False)
         self.w_sm_mode = W.Dropdown(options=[("layer-aware (separately in BaTiO3 / SrTiO3)", "layers"),
                                              ("Gaussian", "gauss")], value="layers", description="smoothing",
-                                    style=_S, layout=_L)
+                                    style=_S, layout=_L())
         self.w_sm_w = W.Checkbox(value=True, description="weight by 1/sigma^2", indent=False)
         self.w_show = W.Dropdown(options=[("structure (t, tilt, u, w, f)", "structure"),
                                           ("polarization + arrows", "polar"), ("strain", "strain"),
                                           ("field", "field"), ("uncertainties / quality", "quality")],
-                                 value="structure", description="show", style=_S, layout=_L)
+                                 value="structure", description="show", style=_S, layout=_L())
         self.w_arrows = W.BoundedIntText(value=2, min=1, max=20, description="arrow every n px", style=_S,
-                                         layout=_LS)
+                                         layout=_LS())
         for w in (self.w_sm, self.w_sm_mode, self.w_sm_w, self.w_show, self.w_arrows):
             w.observe(lambda ch: self._show_maps(), names="value")
         self.w_maps = self._img("1000px")
         # depth
         self.w_d_n = W.BoundedIntText(value=2, min=2, max=4, description="slabs along the beam", style=_S,
-                                      layout=_LS)
+                                      layout=_LS())
         self.w_d_free = W.Checkbox(value=False, description="free boundary (2 slabs)", indent=False)
-        self.w_d_reg = W.FloatText(value=0.02, description="regularization", style=_S, layout=_LS)
+        self.w_d_reg = W.FloatText(value=0.02, description="regularization", style=_S, layout=_LS())
         self.w_d_roi = W.Text(value="", description="region y0,y1,x0,x1", placeholder="binned-map pixels",
-                              style=_S, layout=_LS)
+                              style=_S, layout=_LS())
         self.w_d_block = W.BoundedIntText(value=0, min=0, max=64, description="or: blocks of n x n (map)",
-                                          style=_S, layout=_LS)
+                                          style=_S, layout=_LS())
         self.w_d_go = W.Button(description="depth fit", icon="align-justify", button_style="warning")
         self.w_d_go.on_click(lambda _: self._depth())
         self.w_d_img = self._img("700px")
@@ -1253,7 +1261,7 @@ class App:
         meta_acc = W.Accordion(children=[W.VBox(rows)])
         meta_acc.set_title(0, "metadata (NXem; * = required)")
         meta_acc.selected_index = None
-        self.w_out_name = W.Text(value="fit4dstem_results", description="file name", style=_S, layout=_L)
+        self.w_out_name = W.Text(value="fit4dstem_results", description="file name", style=_S, layout=_L())
         self.w_nx = W.Button(description="write NXem + validate", icon="save", button_style="primary",
                              layout=W.Layout(width="220px"))
         self.w_nx.on_click(lambda _: self._write_nxem())
@@ -1266,8 +1274,8 @@ class App:
         self.w_eln.on_click(lambda _: self._write_eln())
         self.w_eln_status = W.HTML()
         self.w_wf = W.HTML()
-        self.w_nm_folder = W.Text(value=default_results_folder(), description="NOMAD subfolder", style=_S, layout=_L)
-        self.w_nm_newname = W.Text(description="new upload name", style=_S, layout=_L)
+        self.w_nm_folder = W.Text(value=default_results_folder(), description="NOMAD subfolder", style=_S, layout=_L())
+        self.w_nm_newname = W.Text(description="new upload name", style=_S, layout=_L())
         self.w_nm_push = W.Button(description="upload results to NOMAD", icon="cloud-upload", button_style="warning",
                                   layout=W.Layout(width="230px"))
         self.w_nm_push.on_click(lambda _: self._nm_push())

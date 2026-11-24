@@ -47,7 +47,7 @@ cal = calm.initial_calibration(ds.frames(io.coarse_positions(ds.scan_shape, 12))
 
 **NOMAD plugin.** The package has two NOMAD entry points: the dashboard (`fit4dstem_nomad.dashboards`) and the
 ELN schema (`fit4dstem_nomad.schema_packages`, which needs `nomad-measurements`). In a NOMAD distribution, add the
-repository as a package (`uv add ./packages/fit4DSTEM[nomad]`). The app then appears under
+repository as a package (`uv add packages/fit4DSTEM --extra nomad`). The app then appears under
 `/nomad-oasis/dashboards/fit4dstem/` and uses the user's NOMAD login. Set `FIT4DSTEM_DASHBOARD_URL` to serve it
 separately.
 
