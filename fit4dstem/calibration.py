@@ -472,6 +472,28 @@ class Calibration:
                     bg_margin=self.bg_margin, B_cry=np.asarray(self.B_cry).tolist(), mrad_per_px=self.mrad_per_px,
                     zone_assignment=self.zone_assignment, centre_map_source=self.centre_map_source)
 
+    @classmethod
+    def from_dict(cls, d):
+        """Calibration from :meth:`to_dict` (e.g. the ``calibration`` stored in a fit4dstem NXem file); the maps over
+        the scan are not part of it (coarse calibration / full pass of the new data set)."""
+        d = dict(d or {})
+        c = cls()
+        c.det_shape = tuple(int(v) for v in d.get("det_shape", (0, 0)))
+        c.radius_px = float(d.get("radius_px", 0.0))
+        c.edge_px = float(d.get("edge_px", 1.0))
+        if d.get("distortion"):
+            c.distortion = Distortion.from_dict(d["distortion"])
+        c.centre0 = np.asarray(d.get("centre0", [0.0, 0.0]), float)
+        c.G0 = np.asarray(d.get("G0", np.eye(2)), float)
+        c.g_max_px = float(d.get("g_max_px", 0.0))
+        c.bg_method = str(d.get("bg_method", "smooth"))
+        c.bg_sigma = float(d.get("bg_sigma", 6.0))
+        c.bg_margin = float(d.get("bg_margin", 1.5))
+        c.B_cry = np.asarray(d.get("B_cry", np.eye(2)), float)
+        c.mrad_per_px = float(d.get("mrad_per_px", 0.0))
+        c.zone_assignment = dict(d.get("zone_assignment") or {})
+        return c
+
     def ensure_U(self):
         if self.U is None or self.U.shape[:2] != tuple(self.det_shape):
             self.U = undistorted_pixel_grid(self.det_shape, self.distortion)

@@ -91,9 +91,11 @@ def _plain(o):
 
 def write_eln(folder, name, data_file, reference_file=None, results_file=None, library_files=(), settings=None,
               metadata=None, calibration=None, options=None, results_summary=None, schema="plugin", step_details=None,
-              sample_name=None):
+              sample_name=None, prefix=""):
     """Write the datasets, measurement and workflow archives (see module docstring).  Paths of the files are given
-    relative to the upload folder (where the archives are written).  Returns dict of written paths."""
+    relative to the upload root; ``prefix`` is the folder of the upload the archives go to (default: the root).
+    Returns dict of written paths."""
+    pre = (prefix.strip("/") + "/") if prefix and prefix.strip("/") else ""
     os.makedirs(folder, exist_ok=True)
     settings = _plain(settings or {})
     now = _iso_now()
@@ -137,8 +139,8 @@ def write_eln(folder, name, data_file, reference_file=None, results_file=None, l
             "zone_axis": settings.get("zone"),
         }.items() if v is not None}
         data["datasets"] = [{"name": os.path.basename(f["file"]), "file": f["file"], "role": r}
-                            for f, r in zip(files, ["specimen", "vacuum reference"][:len(files)] +
-                                            ["library"] * max(0, len(files) - 2))]
+                            for f, r in zip(files, ["specimen"] + (["vacuum reference"] if reference_file else [])
+                                            + ["library"] * len(library_files or ()))]
         if results_file:
             data["nxem_file"] = results_file
         if results_summary:
@@ -155,8 +157,8 @@ def write_eln(folder, name, data_file, reference_file=None, results_file=None, l
     me_arch = {"data": data}
     # ---------------------------------------------------------------- workflow
     up = "../upload/archive/mainfile/"
-    dsr = lambda i: f"{up}{ds_name}#/data/Files/{i}"           # noqa: E731
-    stp = lambda i: f"{up}{me_name}#/data/steps/{i}"           # noqa: E731
+    dsr = lambda i: f"{up}{pre}{ds_name}#/data/Files/{i}"           # noqa: E731
+    stp = lambda i: f"{up}{pre}{me_name}#/data/steps/{i}"           # noqa: E731
     inputs = [{"name": "4D-STEM data", "section": dsr(0)}]
     if reference_file:
         inputs.append({"name": "vacuum reference", "section": dsr(1)})
@@ -166,7 +168,7 @@ def write_eln(folder, name, data_file, reference_file=None, results_file=None, l
     outputs = []
     if results_file:
         outputs.append({"name": "NXem results", "section": f"{up}{results_file}#/data"})
-    outputs.append({"name": "measurement ELN", "section": f"{up}{me_name}#/data"})
+    outputs.append({"name": "measurement ELN", "section": f"{up}{pre}{me_name}#/data"})
     tasks = [
         {"m_def": "nomad.datamodel.metainfo.workflow.Task", "name": STEPS[0][0],
          "inputs": [dict(x) for x in inputs[:2 if reference_file else 1]],

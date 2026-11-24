@@ -45,11 +45,27 @@ cal = calm.initial_calibration(ds.frames(io.coarse_positions(ds.scan_shape, 12))
 ...                                                  # see examples/run_synthetic.py for the whole chain
 ```
 
-**NOMAD plugin.** The package has two NOMAD entry points: the dashboard (`fit4dstem_nomad.dashboards`) and the
-ELN schema (`fit4dstem_nomad.schema_packages`, which needs `nomad-measurements`). In a NOMAD distribution, add the
-repository as a package (`uv add packages/fit4DSTEM --extra nomad`). The app then appears under
-`/nomad-oasis/dashboards/fit4dstem/` and uses the user's NOMAD login. Set `FIT4DSTEM_DASHBOARD_URL` to serve it
-separately.
+**NOMAD plugin.** The package has three NOMAD entry points: the dashboard (`fit4dstem_nomad.dashboards`), the
+ELN schema (`fit4dstem_nomad.schema_packages`, which needs `nomad-measurements`) and an action
+(`fit4dstem_nomad.actions:fit4dstem_map_fit`). In a NOMAD distribution, add the repository as a package
+(`uv add packages/fit4DSTEM --extra nomad`). The app then appears under `/nomad-oasis/dashboards/fit4dstem/` and uses
+the user's NOMAD login; in tab 1, files can also be uploaded from the user's computer (chunked, with progress). Set
+`FIT4DSTEM_DASHBOARD_URL` to serve it separately.
+
+**NOMAD action: maps with the parameters of a previous analysis.** Once one scan has been analysed in the app (tab 4:
+NXem results + ELN entry in a NOMAD upload), further scans recorded under the same conditions can be analysed on a
+NOMAD worker without the GUI. The action *fit4dstem: fit 4D-STEM maps with the parameters of a previous analysis*
+takes the data set (and optionally a vacuum reference) and **`parameters_from`**: the previous NXem results file or
+its ELN entry (`*.archive.yaml`). From it, it reads the calibration (aperture, polynomial distortion, crystal
+assignment of the disc lattice, mrad/px, background), the fit options, the high tension and convergence angle, the
+**crystal structures** (lattice parameters, A-site, O displacement pattern), the zone axis and the libraries (the
+library files listed in the ELN, or `lib_*.h5` next to the results; with `build_missing_libraries` they are rebuilt
+from the stored structures and build parameters). It then recalibrates the new scan starting from the previous
+calibration, runs the full pass and the map fit, and adds NXem + ELN + workflow (and rebuilt libraries) to the
+upload. Start it from NOMAD's *Actions* page (form), via the API
+(`POST …/api/v1/actions/fit4dstem_nomad.actions:fit4dstem_map_fit/start`), or in Python with
+`fit4dstem.pipeline.run(data, "previous_results.nxs", "out")`. Run a CPU worker for it (`uv run poe cpuworker` in
+nomad-distro-dev).
 
 ## Method in brief
 

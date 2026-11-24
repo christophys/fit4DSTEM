@@ -8,6 +8,7 @@ and a stop button.  Figures are rendered to PNG (identical everywhere).
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import threading
@@ -205,16 +206,77 @@ class App:
         self.w_vimg = self._img("420px")
         # NOMAD
         nomad = self._nomad_box()
+        upload = self._upload_box()
         return W.VBox([
             W.HTML("<b>Local files</b> (HDF5, NeXus/NXem, Nion Swift .h5/.ndata, .npy, other formats via "
                    "RosettaSciIO). Data are read lazily: only the frames needed are loaded."),
-            W.HBox([self.w_dir, self.w_up, self.w_refresh]), self.w_files,
+            W.HBox([self.w_dir, self.w_up, self.w_refresh]), self.w_files, upload,
             W.HBox([self.w_dsp, self.w_bin]), W.HBox([self.w_open, self.w_open_ref]), self.w_info, self.w_info_ref,
             nomad,
             W.HTML("<b>Acquisition parameters</b> (read from the file where available; please check)"),
             W.HBox([self.w_E, self.w_alpha]), W.HBox([self.w_step, self.w_gain]), self.w_zone, *mats,
             W.HBox([self.w_prev_n, self.w_prev]), W.HBox([self.w_prev_img, self.w_vimg]),
         ])
+
+    def _upload_box(self):
+        """Upload from the user's computer (server mode: Solara / NOMAD dashboard): chunked transfer with progress
+        into the session folder; the file then appears in the list above (open it as specimen or reference)."""
+        self.w_upload_progress = W.HTML()
+        self.w_upload = None
+        if not self.server_mode:
+            return W.VBox([])
+        try:
+            from ipyvuetify.extra import FileInput
+            self.w_upload = FileInput(multiple=True, accept=",".join(fio.EXTENSIONS), show_progress=False)
+        except Exception:  # noqa: BLE001  -- ipyvuetify not available
+            return W.VBox([])
+        self.w_upload.observe(lambda ch: ch["new"] and threading.Thread(
+            target=self._stream_job, args=(list(ch["new"]),), daemon=True).start(), names="file_info")
+        return W.VBox([W.HBox([W.HTML("<b>From your computer:</b>", layout=W.Layout(width="150px")),
+                               W.Box([self.w_upload], layout=W.Layout(width="460px"))]),
+                       W.HTML("<small>transferred in chunks (no size limit); for data sets of many GB, loading "
+                              "lazily from a NOMAD upload (below) is faster</small>"), self.w_upload_progress])
+
+    def _stream_job(self, info, chunk=8 << 20):
+        files = self.w_upload.get_files(timeout=300)
+        total = sum(int(f["size"]) for f in info) or 1
+        done, t0 = 0, time.time()
+        dest = os.path.join(self.work_dir, "uploads")
+        os.makedirs(dest, exist_ok=True)
+        paths = []
+        try:
+            for k, f in enumerate(files):
+                name = os.path.basename(f["name"]) or f"upload_{k}"
+                size, got = int(f["size"]), 0
+                path = os.path.join(dest, name)
+                with open(path, "wb") as fo:
+                    while got < size:
+                        b = f["file_obj"].read(min(chunk, size - got))
+                        if not b:
+                            break
+                        fo.write(b)
+                        got += len(b)
+                        done += len(b)
+                        rate = done / max(time.time() - t0, 1e-3) / 1e6
+                        self.w_upload_progress.value = (
+                            f"<span style='color:#1565c0'>⬆ uploading <b>{html.escape(name)}</b>"
+                            f"{f' ({k + 1} of {len(files)})' if len(files) > 1 else ''}: {100 * got / max(size, 1):.0f} % "
+                            f"({got / 1e6:.1f} of {size / 1e6:.1f} MB, {rate:.1f} MB/s)</span>"
+                            f"<progress value='{done}' max='{total}' style='width:300px;margin-left:8px'></progress>")
+                if got != size:
+                    raise IOError(f"transfer of {name} incomplete ({got} of {size} bytes)")
+                paths.append(path)
+        except Exception as e:  # noqa: BLE001
+            self.w_upload_progress.value = f"<span style='color:crimson'>upload failed: {html.escape(repr(e))}</span>"
+            return
+        self._browse(dest)
+        if paths:
+            self.w_files.value = ("file", paths[-1])
+        self.w_upload_progress.value = (
+            f"<span style='color:green'>✔ uploaded {html.escape(', '.join(os.path.basename(p) for p in paths))} "
+            f"({total / 1e6:.1f} MB in {time.time() - t0:.0f} s) — selected above: press <i>open as specimen data</i> "
+            f"or <i>open as vacuum reference</i></span>")
+        self.log("uploaded " + ", ".join(paths))
 
     def _browse(self, path):
         if self.server_mode and not os.path.abspath(path).startswith(self.data_dir) and \
@@ -1317,7 +1379,8 @@ class App:
                                                sigma_pm=r.sigma.tolist(), polarization_uC_cm2=r.polarization.tolist(),
                                                cost=r.cost, cost_single=r.cost_single) for r in self.depth_results]
             if self.libs:
-                extra["libraries"] = {k: v.meta for k, v in self.libs.items()}
+                from .pipeline import library_meta
+                extra["libraries"] = {k: library_meta(v) for k, v in self.libs.items()}
             mean = self.coarse_frames.mean(0) if self.coarse_frames is not None else None
             nxem.write_results(path, maps, self._step_nm(), metadata=self.metadata(), energy_eV=self.w_E.value * 1e3,
                                convergence_mrad=self.w_alpha.value, calibration=self.cal.to_dict(),

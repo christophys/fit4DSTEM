@@ -39,6 +39,7 @@ Repository = "https://github.com/christophys/fit4DSTEM"
 [project.entry-points.'nomad.plugin']
 fit4dstem_dashboard = "fit4dstem_nomad.dashboards:fit4dstem_dashboard"
 fit4dstem_schema = "fit4dstem_nomad.schema_packages:fourdstem_schema"
+fit4dstem_map_fit = "fit4dstem_nomad.actions:fit4dstem_map_fit"
 
 [tool.setuptools.dynamic]
 version = { attr = "fit4dstem.__version__" }
