@@ -58,15 +58,18 @@ def connect(app, token, candidates, banner):
     err = ""
     for url in candidates:
         try:
-            me = NomadClient(url, token, timeout=10).me()
+            NomadClient(url, token, timeout=10).me()
         except NomadError as e:
             err = str(e)
             continue
         app.w_nm_url.value = "custom"
         app.w_nm_custom.value = url
         app.w_nm_token.value = token
-        name = me.get("name") or me.get("username") or me.get("user_id", "")
-        banner.value = f"<small>Signed in to NOMAD as <b>{name}</b> ({url}).</small>"
+        banner.value = ""                 # signed in: nothing to show above the title
+        try:
+            app.project.connect(url, token)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             app._nm_list_uploads()
         except Exception:  # noqa: BLE001

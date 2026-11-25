@@ -221,21 +221,51 @@ class App:
     def _upload_box(self):
         """Upload from the user's computer (server mode: Solara / NOMAD dashboard): chunked transfer with progress
         into the session folder; the file then appears in the list above (open it as specimen or reference)."""
+        from .nomad_project import ProjectPicker, upload_button
         self.w_upload_progress = W.HTML()
         self.w_upload = None
+        self._stored = {}
+        self.project = ProjectPicker(folder="4dstem_data", on_change=self._project_changed)
         if not self.server_mode:
             return W.VBox([])
-        try:
-            from ipyvuetify.extra import FileInput
-            self.w_upload = FileInput(multiple=True, accept=",".join(fio.EXTENSIONS), show_progress=False)
-        except Exception:  # noqa: BLE001  -- ipyvuetify not available
+        self.w_upload = upload_button(accept=",".join(fio.EXTENSIONS), label="Upload 4D-STEM data file(s)")
+        if self.w_upload is None:                          # ipyvuetify not available
             return W.VBox([])
         self.w_upload.observe(lambda ch: ch["new"] and threading.Thread(
             target=self._stream_job, args=(list(ch["new"]),), daemon=True).start(), names="file_info")
-        return W.VBox([W.HBox([W.HTML("<b>From your computer:</b>", layout=W.Layout(width="150px")),
-                               W.Box([self.w_upload], layout=W.Layout(width="460px"))]),
+        return W.VBox([self.project.box,
+                       W.HBox([W.HTML("<b>From your computer:</b>", layout=W.Layout(width="150px")),
+                               W.Box([self.w_upload], layout=W.Layout(width="400px"))]),
                        W.HTML("<small>transferred in chunks (no size limit); for data sets of many GB, loading "
                               "lazily from a NOMAD upload (below) is faster</small>"), self.w_upload_progress])
+
+    def _project_changed(self, upload_id):
+        """The chosen NOMAD project is also where the results go (tab 4)."""
+        if upload_id:
+            self.w_nm_upload.value = upload_id
+
+    def _store_in_project(self, paths):
+        """Put the uploaded files into the chosen NOMAD project (a new one is created if chosen).
+        Returns (result of ProjectPicker.store or None, error message)."""
+        if not self.project.connected or not paths:
+            return None, ""
+        t0 = time.time()
+
+        def prog(sent, size):
+            self.w_upload_progress.value = (
+                f"<span style='color:#1565c0'>storing in the NOMAD project: {100 * sent / max(size, 1):.0f} % "
+                f"({sent / 1e6:.1f} of {size / 1e6:.1f} MB, {sent / max(time.time() - t0, 1e-3) / 1e6:.1f} "
+                f"MB/s)</span>")
+        try:
+            r = self.project.store(paths, progress=prog, tmp_dir=self.work_dir,
+                                   default_name=os.path.splitext(os.path.basename(paths[0]))[0])
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+        if r:
+            self._project_changed(r["upload_id"])
+            for p, up in zip(paths, r["paths"]):
+                self._stored[os.path.abspath(p)] = {"url": r["url"], "upload_id": r["upload_id"], "path": up}
+        return r, ""
 
     def _stream_job(self, info, chunk=8 << 20):
         files = self.w_upload.get_files(timeout=300)
@@ -269,13 +299,21 @@ class App:
         except Exception as e:  # noqa: BLE001
             self.w_upload_progress.value = f"<span style='color:crimson'>upload failed: {html.escape(repr(e))}</span>"
             return
+        stored, err = self._store_in_project(paths)
         self._browse(dest)
         if paths:
             self.w_files.value = ("file", paths[-1])
+        where = ""
+        if err:
+            where = f"<br><span style='color:crimson'>not stored in NOMAD: {html.escape(err)}</span>"
+        elif stored:
+            where = (f"<br><span style='color:green'>stored in NOMAD project <a href='{stored['gui_url']}' "
+                     f"target='_blank' rel='noopener'>{html.escape(stored['upload_id'])}</a>/"
+                     f"{html.escape(stored['folder'])}; the results go there too (tab 4)</span>")
         self.w_upload_progress.value = (
             f"<span style='color:green'>✔ uploaded {html.escape(', '.join(os.path.basename(p) for p in paths))} "
             f"({total / 1e6:.1f} MB in {time.time() - t0:.0f} s) — selected above: press <i>open as specimen data</i> "
-            f"or <i>open as vacuum reference</i></span>")
+            f"or <i>open as vacuum reference</i></span>" + where)
         self.log("uploaded " + ", ".join(paths))
 
     def _browse(self, path):
@@ -333,6 +371,8 @@ class App:
         except Exception as e:  # noqa: BLE001
             self.log(f"cannot open {v[1]}: {e}")
             return
+        if not is_ref and os.path.abspath(v[1]) in getattr(self, "_stored", {}):
+            self.nomad_ctx = dict(self._stored[os.path.abspath(v[1])])     # the file is also in a NOMAD project
         self._set_dataset(ds, is_ref)
 
     def _set_dataset(self, ds, is_ref):
