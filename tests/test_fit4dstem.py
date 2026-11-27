@@ -129,3 +129,32 @@ def test_app_builds(tmp_path):
     from fit4dstem.app import App
     app = App(data_dir=str(tmp_path), work_dir=str(tmp_path / "w"))
     assert len(app.tabs.children) == 4
+
+
+def test_nion_convert_npy_and_zip(tmp_path):
+    import json
+    import zipfile
+
+    from fit4dstem import convert as cv
+
+    rng = np.random.default_rng(0)
+    data = rng.poisson(3, (4, 5, 8, 8)).astype(np.float32)
+    meta = {
+        "spatial_calibrations": [{"scale": 0.1, "offset": 0, "units": "nm"}] * 2
+        + [{"scale": 1, "offset": 0, "units": "eV"}] * 2,
+        "metadata": {"instrument": {"high_tension": 60000.0}},
+    }
+    np.save(tmp_path / "A.npy", data)
+    (tmp_path / "A.json").write_text(json.dumps(meta))
+    buf = io.BytesIO()
+    np.save(buf, data)
+    with zipfile.ZipFile(tmp_path / "B.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("B.npy", buf.getvalue())
+        z.writestr("B.json", json.dumps(meta))
+    for name, src in [("A", "A.npy"), ("B", "B.zip")]:
+        out = tmp_path / f"{name}.nxs"
+        cv.convert(str(tmp_path / src), str(out), log=lambda *a: None)
+        with h5py.File(out) as h:
+            d = h["entry1/measurement/event1/image1/image_4d/real"]
+            assert d.dtype == np.uint16
+            assert np.array_equal(d[()], data)

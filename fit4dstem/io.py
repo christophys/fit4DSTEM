@@ -355,8 +355,8 @@ def open_ndata(path, det_bin=1):
             n_extra = int.from_bytes(hdr[28:30], "little")
             data_off = info.header_offset + 30 + n_name + n_extra
             fh.seek(data_off)
-            version = np.lib.format.read_magic(fh)
-            shape, fortran, dtype = np.lib.format._read_array_header(fh, version)
+            from .convert import read_npy_header
+            shape, fortran, dtype = read_npy_header(fh)
             arr_off = fh.tell()
         arr = np.memmap(path, dtype=dtype, mode="r", offset=arr_off, shape=shape, order="F" if fortran else "C")
         z.close()
