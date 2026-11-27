@@ -10,6 +10,8 @@ Environment variables of the NOMAD app process:
 * ``FIT4DSTEM_DASHBOARD_URL`` -- serve the app elsewhere and only link it from NOMAD (``external_url``)
 * ``FIT4DSTEM_DATA``          -- folder with example data / libraries shown in tab 1 (read only)
 * ``FIT4DSTEM_NOMAD_API``     -- API URL the app uses for NOMAD (default: this NOMAD)
+* ``FIT4DSTEM_LIBRARIES``     -- persistent folder(s) for rocking-curve libraries, shared by the users (several
+  separated by ``:``); without it, the users store libraries in their NOMAD projects or download them
 """
 import os
 

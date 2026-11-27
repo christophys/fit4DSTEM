@@ -74,7 +74,8 @@ class MockNomad:
                     if kind == "rawdir" and method == "GET":
                         if path in files:
                             return self._send(200, {"path": path, "access": "unpublished",
-                                                    "file_metadata": {"name": path.split("/")[-1]}})
+                                                    "file_metadata": {"name": path.split("/")[-1],
+                                                                      "size": len(files[path])}})
                         pre = path + "/" if path else ""
                         content = {}
                         for f, b in files.items():
@@ -93,20 +94,28 @@ class MockNomad:
                     if kind == "raw" and method == "GET":
                         if path not in files:
                             return self._send(404, {"detail": "no file"})
-                        return self._send(200, raw=files[path])
+                        b = files[path]
+                        if "offset" in q:                   # range read (RemoteFile)
+                            o = int(q["offset"])
+                            b = b[o:o + int(q.get("length", len(b)))]
+                        return self._send(200, raw=b)
                     if kind == "raw" and method == "PUT":
                         if uid in mock.published:
                             return self._send(403, {"detail": "published"})
-                        self._extract(uid, path)
+                        self._extract(uid, path, q.get("file_name"))
                         return self._send(200, {"upload_id": uid, "data": {"upload_id": uid}})
                 return self._send(400, {"detail": "unknown"})
 
-            def _extract(self, uid, folder):
+            def _extract(self, uid, folder, file_name=None):
                 n = int(self.headers.get("Content-Length", 0) or 0)
                 body = self.rfile.read(n) if n else b""
                 if not body:                        # empty upload (POST /uploads without a file)
                     return
                 mock.bodies.append(len(body))
+                if not zipfile.is_zipfile(io.BytesIO(body)):        # a single file is stored as it is
+                    name = (folder + "/" + (file_name or "file")) if folder else (file_name or "file")
+                    mock.uploads[uid][name.strip("/")] = body
+                    return
                 z = zipfile.ZipFile(io.BytesIO(body))
                 for it in z.infolist():
                     name = (folder + "/" + it.filename) if folder else it.filename

@@ -7,7 +7,9 @@
 * :class:`ProjectPicker` -- choose the NOMAD project (= upload) that the uploaded files and the results go to: one of
   the user's unpublished uploads, or a new one as long as the user's limit of unpublished uploads
   (``services.upload_limit`` of the NOMAD configuration, 10 by default) is not reached;
-* :func:`put_files` -- files into a folder of an upload as one zip built on disk and streamed (any size).
+* :func:`put_files` -- files into a folder of an upload as one zip built on disk and streamed (any size);
+* :func:`put_bytes` -- one file from memory into a folder of an upload (no local disk needed);
+* :func:`download_widget` -- save data on the user's computer (browser download in chunks, any size).
 """
 from __future__ import annotations
 
@@ -167,6 +169,133 @@ def put_files(url, token, files, upload_id, folder="", progress=None, tmp_dir=No
     return [f"{folder}/{a}" if folder else a for _p, a in items]
 
 
+def put_bytes(url, token, data, upload_id, folder, name, progress=None, timeout=3600, chunk=4 << 20):
+    """One file (``data``: bytes) into ``folder`` of the upload under ``name``, streamed from memory (nothing is
+    written to the local disk).  NOMAD stores a file that is not an archive as it is.  Returns its path."""
+    folder = "/".join(s for s in str(folder or "").replace("\\", "/").split("/") if s)
+    name = os.path.basename(str(name))
+    if ".." in folder.split("/") or not name or name == "..":
+        raise ProjectError("invalid folder or file name")
+    size = len(data)
+    mv = memoryview(data)
+
+    class Body:
+        pos = 0
+
+        def read(self, n=-1):
+            n = chunk if n is None or n < 0 else min(n, chunk)
+            b = bytes(mv[Body.pos:Body.pos + n])
+            Body.pos += len(b)
+            if progress:
+                progress(Body.pos, size)
+            return b
+
+        def __len__(self):
+            return size
+    path = f"/uploads/{upload_id}/raw/{urllib.parse.quote(folder)}"
+    q = "?" + urllib.parse.urlencode({"file_name": name})
+    req = urllib.request.Request(url.rstrip("/") + path + q, data=Body(), method="PUT", headers={
+        "Accept": "application/json", "Authorization": "Bearer " + token,
+        "Content-Type": "application/octet-stream", "Content-Length": str(size)})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        raise ProjectError(f"NOMAD refused the file ({e.code}): {e.read().decode(errors='replace')[:300]}") from None
+    except urllib.error.URLError as e:
+        raise ProjectError(f"NOMAD is not reachable ({e.reason})") from None
+    return f"{folder}/{name}" if folder else name
+
+
+# ---------------------------------------------------------------------------------------------- download widget
+_DOWNLOAD_TPL = """<template><span style="display:none"></span></template>
+<script>
+module.exports = {
+  created() { this.dlParts = []; this.dlId = null; },
+  watch: {
+    seq(v) {
+      if (!v) { return; }
+      if (this.did !== this.dlId) { this.dlParts = []; this.dlId = this.did; }
+      const c = this.chunk;
+      if (c) {
+        this.dlParts.push(c instanceof ArrayBuffer ? c.slice(0)
+                          : c.buffer.slice(c.byteOffset, c.byteOffset + c.byteLength));
+      }
+      if (this.dlParts.length >= this.n_chunks) {
+        const blob = new Blob(this.dlParts, {type: 'application/octet-stream'});
+        this.dlParts = [];
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = this.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      }
+      this.ack = v;
+    }
+  }
+}
+</script>"""
+
+
+def download_widget():
+    """Invisible widget that saves data from the Python side as a file on the user's computer (browser download),
+    sent in chunks with flow control (no size limit of a single message, no file on the server).  Must be shown
+    somewhere in the GUI.  ``w.send(data, filename, progress=None, stop=None)`` (blocking; call it from a
+    background thread).  None if ipyvuetify is not available."""
+    try:
+        import threading
+        import uuid
+
+        import traitlets
+        from ipyvuetify import VuetifyTemplate
+    except Exception:  # noqa: BLE001
+        return None
+
+    class ChunkedDownload(VuetifyTemplate):
+        template = traitlets.Unicode(_DOWNLOAD_TPL).tag(sync=True)
+        filename = traitlets.Unicode("download.bin").tag(sync=True)
+        did = traitlets.Unicode("").tag(sync=True)
+        n_chunks = traitlets.Int(0).tag(sync=True)
+        seq = traitlets.Int(0).tag(sync=True)
+        ack = traitlets.Int(0).tag(sync=True)
+        chunk = traitlets.Bytes(None, allow_none=True).tag(sync=True)
+
+        def send(self, data, filename, progress=None, stop=None, chunk=8 << 20, timeout=120.0):
+            size = len(data)
+            n = max(1, -(-size // chunk))
+            mv = memoryview(data)
+            got = threading.Event()
+
+            def on_ack(ch):
+                if ch["new"] >= self.seq:
+                    got.set()
+            self.observe(on_ack, names="ack")
+            try:
+                did = uuid.uuid4().hex
+                for i in range(n):
+                    if stop and stop():
+                        raise InterruptedError
+                    got.clear()
+                    with self.hold_sync():
+                        self.filename, self.did, self.n_chunks = os.path.basename(filename), did, n
+                        self.chunk = bytes(mv[i * chunk:(i + 1) * chunk])
+                        self.seq = self.seq + 1
+                    if not got.wait(timeout):
+                        raise ProjectError("the browser does not answer: download aborted (is the page still "
+                                           "open?)")
+                    if progress:
+                        progress(min((i + 1) * chunk, size), size)
+            finally:
+                self.unobserve(on_ack, names="ack")
+                self.chunk = None
+            return size
+
+    return ChunkedDownload()
+
+
 def gui_url(url, upload_id):
     return url.split("/api/v1")[0] + f"/gui/user/uploads/upload/id/{upload_id}"
 
@@ -257,9 +386,9 @@ class ProjectPicker:
         v = self.w_sel.value
         return None if v in (None, NONE, NEW) else v
 
-    def store(self, files, progress=None, tmp_dir=None, default_name=""):
-        """Create the project if "new" is chosen, then put the files into its folder.  None if "keep only in this
-        session" is chosen."""
+    def ensure(self, default_name=""):
+        """ID of the chosen project; creates it first if "new project" is chosen.  None if not connected or "keep
+        only in this session" is chosen."""
         if not self.connected or self.w_sel.value in (None, NONE):
             return None
         uid = self.w_sel.value
@@ -269,6 +398,14 @@ class ProjectPicker:
             name = self.w_name.value.strip() or default_name or time.strftime("data %Y-%m-%d %H:%M")
             uid = create_project(self.url, self.token, name)
             self.refresh(select=uid)
+        return uid
+
+    def store(self, files, progress=None, tmp_dir=None, default_name=""):
+        """Create the project if "new" is chosen, then put the files into its folder.  None if "keep only in this
+        session" is chosen."""
+        if not self.connected or self.w_sel.value in (None, NONE):
+            return None
+        uid = self.ensure(default_name)
         paths = put_files(self.url, self.token, files, uid, self.w_folder.value.strip(), progress=progress,
                           tmp_dir=tmp_dir)
         return {"upload_id": uid, "folder": self.w_folder.value.strip().strip("/"), "paths": paths, "url": self.url,

@@ -237,17 +237,49 @@ class Library:
 
     # ------------------------------------------------------------------ io
     def save(self, path):
+        """Write to ``path`` (via ``path.part``, renamed when complete: an interrupted write, e.g. a full disk,
+        leaves no broken library) or to a writable binary file object."""
         import h5py
-        with h5py.File(path, "w") as f:
-            f.create_dataset("rocking_curves", data=self.data, compression="gzip", compression_opts=1,
-                             chunks=(1, 1, 1) + self.data.shape[3:])
-            f["u_pm"], f["w_pm"], f["cells"] = self.u, self.w, self.cells
-            f["hk"], f["g_inv_A"], f["k_mrad"] = self.hk, self.g, self.k
-            f.attrs["meta"] = json.dumps(self.meta)
+        if hasattr(path, "write"):
+            with h5py.File(path, "w") as f:
+                self._write(f)
+            return path
+        tmp = str(path) + ".part"
+        try:
+            with h5py.File(tmp, "w") as f:
+                self._write(f)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
         return path
+
+    def _write(self, f):
+        f.create_dataset("rocking_curves", data=self.data, compression="gzip", compression_opts=1,
+                         chunks=(1, 1, 1) + self.data.shape[3:])
+        f["u_pm"], f["w_pm"], f["cells"] = self.u, self.w, self.cells
+        f["hk"], f["g_inv_A"], f["k_mrad"] = self.hk, self.g, self.k
+        f.attrs["meta"] = json.dumps(self.meta)
+
+    def to_bytes(self):
+        """The library file (HDF5) as bytes, without writing to disk."""
+        import io
+        buf = io.BytesIO()
+        self.save(buf)
+        return buf.getvalue()
+
+    @property
+    def file_size_estimate(self):
+        """Upper estimate of the file size in bytes (the data compress little)."""
+        return int(self.data.nbytes * 1.02) + (1 << 20)
 
     @classmethod
     def load(cls, path):
+        """From a file path or a readable, seekable binary file object (e.g. bytes in a BytesIO, or a file of a
+        NOMAD upload read on demand by :class:`fit4dstem.nomad.RemoteFile`)."""
         import h5py
         with h5py.File(path, "r") as f:
             return cls(f["rocking_curves"][()], f["u_pm"][()], f["w_pm"][()], f["cells"][()], f["hk"][()],

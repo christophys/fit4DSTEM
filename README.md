@@ -68,6 +68,13 @@ upload. Start it from NOMAD's *Actions* page (form), via the API
 `fit4dstem.pipeline.run(data, "previous_results.nxs", "out")`. Run a CPU worker for it (`uv run poe cpuworker` in
 nomad-distro-dev).
 
+**Libraries.** Building a library takes long, so tab 3 keeps a built (or uploaded) library in the session and
+stores it where you tick: the *library folder* (editable; on a server only below the session folder, the data folder
+or `FIT4DSTEM_LIBRARIES`), the *NOMAD project* (folder `libraries`, sent from memory) and/or a *download to your
+computer*. Libraries are listed from the library folder, the session and the NOMAD project, and are read from NOMAD
+directly into memory. A full disk is reported before writing, and the library stays usable; press *store* to retry.
+On a NOMAD Oasis, set `FIT4DSTEM_LIBRARIES` to a persistent folder to share libraries between users.
+
 ## Method in brief
 
 * **Why non-overlapping CBED.** Each detector pixel inside disc *g* is reached by exactly one incident direction

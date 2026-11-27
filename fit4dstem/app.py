@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -120,6 +121,9 @@ class App:
         self.work_dir = os.path.abspath(work_dir or os.path.join(os.getcwd(), "fit4dstem_results"))
         os.makedirs(self.work_dir, exist_ok=True)
         self.server_mode = server_mode
+        env = self._env_lib_dirs()
+        self.lib_dir = env[0] if env else (self.work_dir if server_mode else self.data_dir)
+        self.session_libs = {}           # name -> Library built / uploaded / loaded in this session
         self.ds = None
         self.ds_ref = None
         self.cal = None
@@ -140,6 +144,7 @@ class App:
         self.job = Job()
         self.log_box = W.Textarea(layout=W.Layout(width="98%", height="110px"))
         self._build()
+        self._lib_dir_note()
 
     # ================================================================== helpers
     def log(self, msg):
@@ -243,6 +248,8 @@ class App:
         """The chosen NOMAD project is also where the results go (tab 4)."""
         if upload_id:
             self.w_nm_upload.value = upload_id
+        if hasattr(self, "w_lib"):
+            self._lib_refresh()
 
     def _store_in_project(self, paths):
         """Put the uploaded files into the chosen NOMAD project (a new one is created if chosen).
@@ -838,10 +845,43 @@ class App:
 
     # ================================================================== tab 3
     def _tab_fit(self):
-        self.w_lib_dir = W.Text(value=self.data_dir, description="library folder", style=_S,
-                                layout=W.Layout(width="560px"), disabled=self.server_mode)
+        self.w_lib_dir = W.Text(value=self.lib_dir, description="library folder", style=_S,
+                                layout=W.Layout(width="560px"), continuous_update=False,
+                                tooltip="folder with libraries (*lib*.h5); also where new libraries are stored "
+                                        "when 'library folder' is ticked below")
+        self.w_lib_dir.observe(lambda ch: self._lib_dir_changed(), names="value")
+        self.w_lib_dir_info = W.HTML()
         self.w_lib_refresh = W.Button(description="list", icon="refresh", layout=W.Layout(width="80px"))
         self.w_lib_refresh.on_click(lambda _: self._lib_refresh())
+        # where new / uploaded libraries are stored
+        self.w_st_dir = W.Checkbox(value=not self.server_mode or bool(self._env_lib_dirs()),
+                                   description="library folder", indent=False, layout=W.Layout(width="140px"))
+        self.w_st_nomad = W.Checkbox(value=self.server_mode, description="NOMAD project, folder", indent=False,
+                                     layout=W.Layout(width="180px"))
+        self.w_st_nomad_folder = W.Text(value="libraries", layout=W.Layout(width="150px"))
+        self.w_st_dl = W.Checkbox(value=False, description="download to my computer", indent=False,
+                                  layout=W.Layout(width="200px"))
+        self.w_st_sel = W.Dropdown(options=[], description="library", style=_S, layout=W.Layout(width="560px"))
+        self.w_st_go = W.Button(description="store", icon="save", layout=W.Layout(width="100px"),
+                                tooltip="store / download the chosen library (of this session) as ticked above")
+        self.w_st_go.on_click(lambda _: self._lib_store_selected())
+        self.w_st_status = W.HTML()
+        self.downloader = None
+        try:
+            from .nomad_project import download_widget
+            self.downloader = download_widget()
+        except Exception:  # noqa: BLE001
+            self.downloader = None
+        if self.downloader is None:
+            self.w_st_dl.disabled = True
+            self.w_st_dl.description = "download (needs ipyvuetify)"
+        self.w_lib_up = None
+        if self.server_mode:
+            from .nomad_project import upload_button
+            self.w_lib_up = upload_button(accept=".h5,.hdf5", label="Upload library file(s)")
+            if self.w_lib_up is not None:
+                self.w_lib_up.observe(lambda ch: ch["new"] and threading.Thread(
+                    target=self._lib_upload_job, args=(list(ch["new"]),), daemon=True).start(), names="file_info")
         self.w_lib = {n: W.Dropdown(options=[("(none)", "")], description=f"{n} library", style=_S,
                                     layout=W.Layout(width="560px")) for n in ("BaTiO3", "SrTiO3")}
         self.w_lib_load = W.Button(description="load libraries", icon="upload", button_style="primary")
@@ -940,9 +980,19 @@ class App:
         acc_d = W.Accordion(children=[depth_box])
         acc_d.set_title(0, "depth-resolved Ti displacement (slab model)")
         acc_d.selected_index = None
+        store_box = W.VBox([
+            W.HTML("<small>Libraries take long to compute: store them where they are kept. A library built or "
+                   "uploaded in this session is kept in memory until the session ends, also if storing "
+                   "fails.</small>"),
+            W.HBox([W.HTML("store in:", layout=W.Layout(width="70px")), self.w_st_dir, self.w_st_nomad,
+                    self.w_st_nomad_folder, self.w_st_dl]),
+            W.HBox([self.w_st_sel, self.w_st_go]),
+            *([W.HBox([W.HTML("<b>From your computer:</b>", layout=W.Layout(width="150px")),
+                       W.Box([self.w_lib_up], layout=W.Layout(width="400px"))])] if self.w_lib_up else []),
+            self.w_st_status, *([self.downloader] if self.downloader is not None else [])])
         return W.VBox([
-            W.HBox([self.w_lib_dir, self.w_lib_refresh]), self.w_lib["BaTiO3"], self.w_lib["SrTiO3"],
-            W.HBox([self.w_lib_load]), self.w_lib_info, acc_b,
+            W.HBox([self.w_lib_dir, self.w_lib_refresh]), self.w_lib_dir_info, self.w_lib["BaTiO3"],
+            self.w_lib["SrTiO3"], W.HBox([self.w_lib_load]), self.w_lib_info, store_box, acc_b,
             W.HTML("<b>Fit</b> (thickness, tilt, Ti displacement u (in-plane) and w (growth), SrTiO3 fraction)"),
             W.HBox([self.w_mix, self.w_refl]), W.HBox([self.w_sbin, self.w_roi]),
             W.HBox([self.w_seeds, self.w_passes]), W.HBox([self.w_threads, self.w_tstep]),
@@ -955,30 +1005,160 @@ class App:
                                                                                 self.w_sm_w]),
             self.w_maps, acc_d])
 
+    # ------------------------------------------------------------------ libraries: where
+    @staticmethod
+    def _env_lib_dirs():
+        """Library folders set by the administrator / user (``FIT4DSTEM_LIBRARIES``, several separated by
+        ``os.pathsep``), e.g. a persistent folder shared by all users of a server."""
+        return [os.path.abspath(d) for d in os.environ.get("FIT4DSTEM_LIBRARIES", "").split(os.pathsep)
+                if d.strip()]
+
+    def _lib_roots(self):
+        """Server mode: folders below which the library folder may be chosen."""
+        return [self.work_dir, self.data_dir] + self._env_lib_dirs()
+
+    @staticmethod
+    def _below(path, root):
+        path, root = os.path.realpath(path), os.path.realpath(root)
+        return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+    def _lib_dir_changed(self):
+        if getattr(self, "_lib_dir_guard", False):
+            return
+        d = os.path.abspath(os.path.expanduser(self.w_lib_dir.value.strip() or "."))
+        if self.server_mode and not any(self._below(d, r) for r in self._lib_roots()):
+            self.w_lib_dir_info.value = _html_ok(
+                "on this server, the library folder must be below " + ", ".join(
+                    f"<code>{html.escape(r)}</code>" for r in dict.fromkeys(self._lib_roots())) +
+                " — to keep libraries, store them in the NOMAD project or download them", False)
+            self._set_lib_dir_text(self.lib_dir)
+            return
+        self.lib_dir = d
+        self._set_lib_dir_text(d)
+        self._lib_dir_note()
+        self._lib_refresh()
+
+    def _set_lib_dir_text(self, d):
+        self._lib_dir_guard = True
+        try:
+            self.w_lib_dir.value = d
+        finally:
+            self._lib_dir_guard = False
+
+    def _lib_dir_note(self):
+        d = self.lib_dir
+        free = ""
+        try:
+            free = f"{__import__('shutil').disk_usage(d if os.path.isdir(d) else os.path.dirname(d)).free / 1e9:.1f}" \
+                   f" GB free"
+        except OSError:
+            pass
+        tmp = self.server_mode and self._below(d, self.work_dir)
+        msg = (f"<small style='color:#b26a00'>temporary folder of this session (deleted when the session ends; "
+               f"{free}): store libraries in the NOMAD project or download them</small>" if tmp else
+               f"<small>{free}</small>")
+        self.w_lib_dir_info.value = msg
+
+    def _nomad_target(self, default_name="fit4dstem libraries"):
+        """(url, token, upload_id) where libraries go in NOMAD: the project of tab 1 (dashboard), else the
+        NOMAD settings of tab 1 (API token, upload ID)."""
+        if self.project.connected:
+            uid = self.project.ensure(default_name)
+            if uid:
+                return self.project.url, self.project.token, uid
+        cl = self._nm_client()
+        uid = self.w_nm_upload.value.strip()
+        if not (cl.token and uid):
+            raise ValueError("no NOMAD project: choose one in tab 1 (or enter an API token and upload ID there)")
+        return cl.url, cl.token, uid
+
+    def _nomad_reader(self):
+        """(client, upload_id) of the NOMAD project to list libraries from, or (None, None)."""
+        if self.project.connected and self.project.selected():
+            return NomadClient(self.project.url, self.project.token), self.project.selected()
+        uid = self.w_nm_upload.value.strip() if hasattr(self, "w_nm_upload") else ""
+        if uid and self.w_nm_token.value:
+            return self._nm_client(), uid
+        return None, None
+
+    # ------------------------------------------------------------------ libraries: list / load
     def _lib_refresh(self):
-        dirs = [self.w_lib_dir.value, self.work_dir, os.path.join(self.work_dir, "nomad_downloads"), self.data_dir]
+        dirs = [self.lib_dir, self.work_dir, os.path.join(self.work_dir, "nomad_downloads"), self.data_dir]
         files = []
-        for d in dirs:
+        for d in dict.fromkeys(dirs):
             if os.path.isdir(d):
                 for root, _, fs in os.walk(d):
                     for f in fs:
                         if f.endswith(".h5") and "lib" in f.lower():
                             files.append(os.path.join(root, f))
         files = sorted(set(files))
+        opts = [(f"(this session) {n}", "session:" + n) for n in self.session_libs]
+        opts += [(os.path.relpath(f, self.work_dir) if f.startswith(self.work_dir) else f, f) for f in files]
+        cl, uid = self._nomad_reader()
+        if cl is not None:
+            try:
+                for path in self._nomad_libs(cl, uid):
+                    opts.append((f"(NOMAD {uid}) {path}", f"nomad:{uid}:{path}"))
+            except Exception as e:  # noqa: BLE001
+                self.log(f"libraries in NOMAD project {uid} not listed: {e}")
         for n, w in self.w_lib.items():
-            w.options = [("(none)", "")] + [(os.path.relpath(f, self.work_dir) if f.startswith(self.work_dir)
-                                             else f, f) for f in files]
-            for f in files:
-                if n.lower() in os.path.basename(f).lower():
-                    w.value = f
+            cur = w.value
+            w.options = [("(none)", "")] + opts
+            vals = [v for _l, v in opts]
+            if cur in vals:
+                w.value = cur
+                continue
+            for lab, v in opts:
+                if n.lower() in lab.lower():
+                    w.value = v
                     break
+        self.w_st_sel.options = [(n, n) for n in self.session_libs]
+        if self.session_libs and self.w_st_sel.value is None:
+            self.w_st_sel.value = list(self.session_libs)[-1]
+
+    @staticmethod
+    def _nomad_libs(cl, uid, max_depth=3, max_dirs=200):
+        """Paths of library files (*lib*.h5) in the upload (breadth first, a few levels)."""
+        out, todo, seen = [], [("", 0)], 0
+        while todo and seen < max_dirs:
+            path, depth = todo.pop(0)
+            seen += 1
+            for name, is_file, _size in cl.listdir(uid, path):
+                p = f"{path}/{name}" if path else name
+                if is_file:
+                    if name.lower().endswith((".h5", ".hdf5")) and "lib" in name.lower():
+                        out.append(p)
+                elif depth + 1 < max_depth:
+                    todo.append((p, depth + 1))
+        return out
+
+    def _lib_open(self, ref):
+        """Library for a value of the library lists: path, ``session:<name>`` or ``nomad:<upload>:<path>``
+        (read directly from NOMAD into memory, nothing written to disk)."""
+        if ref.startswith("session:"):
+            return self.session_libs[ref[8:]]
+        if ref.startswith("nomad:"):
+            _, uid, path = ref.split(":", 2)
+            cl, _u = self._nomad_reader()
+            if cl is None:
+                raise ValueError("not connected to NOMAD")
+            from .nomad import RemoteFile
+            lib = ms.Library.load(RemoteFile(cl, uid, path, block_size=16 << 20, max_blocks=8))
+            self.session_libs.setdefault(os.path.basename(path), lib)
+            return lib
+        return ms.Library.load(ref)
+
+    @staticmethod
+    def _lib_label(ref):
+        return os.path.basename(ref.split(":", 2)[-1] if ref.startswith("nomad:") else ref.split(":", 1)[-1]
+                                if ref.startswith("session:") else ref)
 
     def _lib_load(self):
         def work():
             libs = {}
             for n, w in self.w_lib.items():
                 if w.value:
-                    libs[n] = ms.Library.load(w.value)
+                    libs[n] = self._lib_open(w.value)
                     self.log(f"library {n}: {w.value} ({libs[n].data.nbytes / 1e6:.0f} MB, thickness "
                              f"{libs[n].thickness_nm[0]:.1f}-{libs[n].thickness_nm[-1]:.1f} nm, u {libs[n].u[0]}.."
                              f"{libs[n].u[-1]} pm, directions up to {libs[n].k[-1]:.1f} mrad)")
@@ -991,7 +1171,118 @@ class App:
                                      f"{', '.join(str(e / 1e3) for e in E)} kV</small>")
             if self.w_zone.value not in z:
                 self.log(f"note: the libraries are for zone {z}, tab 1 says {self.w_zone.value}")
+            self._lib_refresh()
         self.job.run(work)
+
+    # ------------------------------------------------------------------ libraries: store
+    def _lib_store(self, name, lib, targets=None, progress=None, stop=None):
+        """Store a library as ticked (library folder, NOMAD project, download).  Returns a list of messages;
+        raises if every chosen target failed."""
+        targets = targets or {"dir": self.w_st_dir.value, "nomad": self.w_st_nomad.value, "dl": self.w_st_dl.value}
+        if not any(targets.values()):
+            return ["not stored (nothing ticked): kept in this session only"]
+        done, errors, data = [], [], None
+
+        def payload():
+            nonlocal data
+            if data is None:
+                self.job.progress(0, f"serializing {name}")
+                data = lib.to_bytes()
+            return data
+        if targets.get("dir"):
+            try:
+                import shutil
+                os.makedirs(self.lib_dir, exist_ok=True)
+                need = lib.file_size_estimate
+                free = shutil.disk_usage(self.lib_dir).free
+                if free < need:
+                    raise OSError(f"not enough space in {self.lib_dir}: {free / 1e9:.2f} GB free, up to "
+                                  f"{need / 1e9:.2f} GB needed")
+                path = os.path.join(self.lib_dir, name)
+                lib.save(path)
+                done.append(f"stored in the library folder: {path} ({os.path.getsize(path) / 1e6:.0f} MB)")
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"not stored in the library folder: {e}")
+        if targets.get("nomad"):
+            try:
+                from .nomad_project import gui_url, put_bytes
+                url, token, uid = self._nomad_target()
+                t0 = time.time()
+
+                def prog(sent, size):
+                    self.job.progress(sent / max(size, 1), f"to NOMAD: {sent / 1e6:.0f} of {size / 1e6:.0f} MB "
+                                                           f"({sent / max(time.time() - t0, 1e-3) / 1e6:.1f} MB/s)")
+                p = put_bytes(url, token, payload(), uid, self.w_st_nomad_folder.value.strip(), name, progress=prog)
+                done.append(f"stored in NOMAD project <a href='{gui_url(url, uid)}' target='_blank' rel='noopener'>{uid}</a>"
+                            f": {html.escape(p)}")
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"not stored in NOMAD: {e}")
+        if targets.get("dl"):
+            try:
+                if self.downloader is None:
+                    raise RuntimeError("download needs ipyvuetify")
+                n = self.downloader.send(payload(), name, stop=stop, progress=lambda s, t: self.job.progress(
+                    s / max(t, 1), f"to your computer: {s / 1e6:.0f} of {t / 1e6:.0f} MB"))
+                done.append(f"downloaded to your computer: {name} ({n / 1e6:.0f} MB; see the browser's downloads)")
+            except InterruptedError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"download failed: {e}")
+        msg = "<br>".join([_html_ok(d) for d in done] + [_html_ok(html.escape(e), False) for e in errors])
+        self.w_st_status.value = msg
+        for d in done:
+            self.log(f"library {name}: " + re.sub("<[^>]+>", "", d))
+        for e in errors:
+            self.log(f"library {name}: {e}")
+        if errors and not done:
+            raise RuntimeError("the library was not stored (it is kept in this session): " + "; ".join(errors))
+        self._lib_refresh()
+        return done
+
+    def _lib_store_selected(self):
+        name = self.w_st_sel.value
+        if not name:
+            self._status(self.w_st_status, "no library in this session (build, upload or load one)", False)
+            return
+        self.job.run(lambda: self._lib_store(name, self.session_libs[name], stop=self.job.stopped))
+
+    def _lib_upload_job(self, info, chunk=8 << 20):
+        """Libraries from the user's computer: read into memory, kept in the session and stored as ticked (library
+        folder / NOMAD project; not downloaded again)."""
+        import io as _io
+        try:
+            files = self.w_lib_up.get_files(timeout=300)
+            for f in files:
+                name = os.path.basename(f["name"]) or "library.h5"
+                size, buf, t0 = int(f["size"]), _io.BytesIO(), time.time()
+                while buf.tell() < size:
+                    b = f["file_obj"].read(min(chunk, size - buf.tell()))
+                    if not b:
+                        break
+                    buf.write(b)
+                    self.w_st_status.value = (f"<span style='color:#1565c0'>⬆ {html.escape(name)}: "
+                                              f"{100 * buf.tell() / max(size, 1):.0f} % ({buf.tell() / 1e6:.0f} of "
+                                              f"{size / 1e6:.0f} MB, {buf.tell() / max(time.time() - t0, 1e-3) / 1e6:.1f}"
+                                              f" MB/s)</span>")
+                if buf.tell() != size:
+                    raise IOError(f"transfer of {name} incomplete ({buf.tell()} of {size} bytes)")
+                buf.seek(0)
+                lib = ms.Library.load(buf)
+                del buf
+                self.session_libs[name] = lib
+                self.log(f"library uploaded: {name} ({lib.material}, {lib.meta.get('zone')}, "
+                         f"{lib.meta.get('energy_eV', 0) / 1e3:.0f} kV)")
+                self._lib_refresh()
+                self.w_st_sel.value = name
+                for n, w in self.w_lib.items():
+                    if n.lower() in name.lower():
+                        w.value = "session:" + name
+                if self.w_st_dir.value or self.w_st_nomad.value:
+                    self._lib_store(name, lib, {"dir": self.w_st_dir.value, "nomad": self.w_st_nomad.value})
+                else:
+                    self.w_st_status.value = _html_ok(f"{html.escape(name)} uploaded (kept in this session)")
+        except Exception as e:  # noqa: BLE001
+            self.w_st_status.value = _html_ok(f"library upload failed: {html.escape(str(e))}", False)
 
     def _lib_params(self):
         uw = [float(v) for v in self.w_b_uw.value.replace(";", ",").split(",") if v.strip()]
@@ -1015,20 +1306,34 @@ class App:
         n = int(np.ceil(p["max_thickness_nm"] * 10 / eng.Lz))
         tot = dt * n * len(p["u_pm"]) * len(p["w_pm"])
         size = len(p["u_pm"]) ** 2 * n * len(hk) * len(ax) ** 2 * 2 / 1e9
+        free = ""
+        if self.w_st_dir.value:
+            try:
+                import shutil
+                free = f"; {shutil.disk_usage(self.lib_dir).free / 1e9:.1f} GB free in the library folder"
+            except OSError:
+                pass
         self.log(f"library estimate: {len(dirs)} directions, {len(hk)} reflections, {n} cells, "
-                 f"{len(p['u_pm']) ** 2} structures: about {tot / 60:.0f} min, {size:.2f} GB")
+                 f"{len(p['u_pm']) ** 2} structures: about {tot / 60:.0f} min, {size:.2f} GB (memory and file)"
+                 f"{free}")
 
     def _lib_build(self):
         p = self._lib_params()
         name = (f"lib_{p['material'].name}_{p['zone'].strip('[]')}_{p['energy_eV'] / 1e3:.0f}kV_"
                 f"{p['radius_mrad']:.1f}mrad.h5")
-        path = os.path.join(self.work_dir, name)
+        if not (self.w_st_dir.value or self.w_st_nomad.value or self.w_st_dl.value):
+            self.log("note: no place to store the library is ticked: it is kept in this session only")
 
         def work():
-            ms.build_library(path=path, progress=self.job.progress, stop=self.job.stopped, log=self.log, **p)
-            self.generated_files.append(path)
+            lib = ms.build_library(path=None, progress=self.job.progress, stop=self.job.stopped, log=self.log, **p)
+            self.session_libs[name] = lib            # kept even if storing fails
             self._lib_refresh()
-            self.log(f"library written: {path}")
+            self.w_st_sel.value = name
+            mat = p["material"].name
+            if mat in self.w_lib:
+                self.w_lib[mat].value = "session:" + name
+            self.log(f"library built: {name} ({lib.data.nbytes / 1e6:.0f} MB in memory)")
+            self._lib_store(name, lib, stop=self.job.stopped)
         self.job.run(work)
 
     def _options(self):
@@ -1441,7 +1746,7 @@ class App:
             base = self._results_name()
             name = os.path.basename(base)
             res = getattr(self, "nxs_path", None)
-            libs = [os.path.basename(w.value) for w in self.w_lib.values() if w.value]
+            libs = [self._lib_label(w.value) for w in self.w_lib.values() if w.value]
             settings = dict(energy_eV=self.w_E.value * 1e3, convergence_mrad=self.w_alpha.value,
                             scan_step_nm=self.w_step.value,
                             scan_shape=list(self.ds.scan_shape) if self.ds else None,
