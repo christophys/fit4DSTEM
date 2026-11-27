@@ -22,6 +22,9 @@ dependencies = [
     "pyyaml",
 ]
 
+[project.scripts]
+nion2nxs = "fit4dstem.convert:main"
+
 [project.optional-dependencies]
 # stand-alone web app (solara run webapp/solara_app.py); solara-assets must match the solara version
 web = ["solara==1.58.2", "solara-assets==1.58.2"]

@@ -33,6 +33,7 @@ voila notebooks/fit4dstem_app.ipynb                 # Voilà app
 solara run webapp/solara_app.py                     # stand-alone web app, http://localhost:8765
 python examples/run_synthetic.py work               # end-to-end example on synthetic data (also a test)
 pytest tests                                        # unit tests (~30 s)
+nion2nxs /path/to/nion_export                       # Nion .npy+.json / .zip -> NXem .nxs (lossless, resumable)
 ```
 
 In Python:
@@ -142,7 +143,8 @@ about 30 min per material on a laptop and need about 0.5 GB.
 
 ```
 fit4dstem/        package: io (lazy readers, NOMAD range reads), calibration, multislice (engine, libraries),
-                  fitting (pattern + map fits), strain, reference (descan, field), depth, nxem, eln, app, plots
+                  fitting (pattern + map fits), strain, reference (descan, field), depth, nxem, eln, app, plots,
+                  convert (Nion export -> NXem, CLI nion2nxs)
 fit4dstem_nomad/  NOMAD plugin: dashboard (Solara) and ELN schema (ELNFourDSTEMMeasurement)
 webapp/           stand-alone Solara app
 notebooks/        fit4dstem_app.ipynb (Jupyter / Voilà), 00_download_github_repo.ipynb
